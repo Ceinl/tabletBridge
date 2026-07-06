@@ -1,0 +1,14 @@
+# Go build output
+/pc/tabletbridge
+/pc/tabletbridge.exe
+*.exe
+*.out
+
+# macOS
+.DS_Store
+
+# Xcode / build artifacts
+xcuserdata/
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/

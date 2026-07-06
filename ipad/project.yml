@@ -1,0 +1,27 @@
+# XcodeGen spec — generates TabletBridge.xcodeproj from the loose Swift files.
+# Install XcodeGen (`brew install xcodegen`), then run `xcodegen generate` here.
+name: TabletBridge
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "15.0"
+targets:
+  TabletBridge:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        includes:
+          - "*.swift"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.tabletbridge
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: 2   # iPad only
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        # iOS 14+ requires a usage string before the Local Network prompt appears.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Sends Apple Pencil position and force to your PC."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
