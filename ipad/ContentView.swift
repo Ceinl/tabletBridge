@@ -15,12 +15,15 @@ struct ContentView: View {
 
             // Main surface: pencil capture, or the on-screen keyboard.
             if keyboardMode {
-                VStack {
-                    Spacer()
-                    KeyboardView(
-                        onChar: { sender.sendChar($0) },
-                        onKey: { sender.sendKey($0) }
-                    )
+                GeometryReader { geo in
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        KeyboardView(
+                            onChar: { sender.sendChar($0) },
+                            onKey: { sender.sendKey($0) }
+                        )
+                        .frame(height: geo.size.height * 0.75)
+                    }
                 }
             } else {
                 PencilCaptureView { x, y, force, phase in
@@ -163,32 +166,36 @@ struct KeyboardView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             keyRow(rows[0])
             keyRow(rows[1])
             keyRow(rows[2])
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 specialKey(system: shifted ? "shift.fill" : "shift") { shifted.toggle() }
                 ForEach(rows[3], id: \.self) { charKey($0) }
                 specialKey(system: "delete.left") { onKey(vkBackspace) }
             }
+            .frame(maxHeight: .infinity)
             keyRow(rows[4])
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Button { onChar(" ") } label: {
-                    Text("space").frame(maxWidth: .infinity)
+                    Text("space").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .buttonStyle(KeyCap())
                 specialKey(system: "return") { onKey(vkEnter) }
-                    .frame(maxWidth: 120)
+                    .frame(maxWidth: 140)
             }
+            .frame(maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .padding()
     }
 
     private func keyRow(_ keys: [String]) -> some View {
-        HStack(spacing: 6) { ForEach(keys, id: \.self) { charKey($0) } }
+        HStack(spacing: 8) { ForEach(keys, id: \.self) { charKey($0) } }
+            .frame(maxHeight: .infinity)
     }
 
     private func charKey(_ base: String) -> some View {
@@ -209,10 +216,10 @@ struct KeyboardView: View {
 struct KeyCap: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.title3.weight(.medium))
+            .font(.title2.weight(.medium))
             .foregroundStyle(.white)
             .frame(minWidth: 40, minHeight: 52)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 (configuration.isPressed ? Color.white.opacity(0.45) : Color.white.opacity(0.18)),
                 in: RoundedRectangle(cornerRadius: 8)
