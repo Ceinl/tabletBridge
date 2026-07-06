@@ -1,8 +1,9 @@
 //go:build windows
 
-// Command tabletbridge receives Apple Pencil packets from the iPad app over UDP
-// and drives the Windows mouse: the cursor follows the pencil, and the left
-// mouse button is held down while pencil force exceeds a threshold.
+// Command tabletbridge receives Apple Pencil / on-screen-keyboard packets from
+// the iPad app over UDP and drives Windows input: the cursor follows the pencil,
+// the left mouse button is held while force exceeds a threshold, and keyboard
+// packets are typed into the foreground window.
 //
 // Pure Go — it calls user32.dll directly, so it needs no cgo/gcc toolchain.
 package main
@@ -30,9 +31,14 @@ const (
 	smCXScreen = 0
 	smCYScreen = 1
 
-	inputMouse         = 0
+	inputMouse    = 0
+	inputKeyboard = 1
+
 	mouseEventLeftDown = 0x0002
 	mouseEventLeftUp   = 0x0004
+
+	keyEventKeyUp   = 0x0002
+	keyEventUnicode = 0x0004
 )
 
 // mouseInput mirrors Win32 MOUSEINPUT (32 bytes on amd64).
@@ -52,6 +58,23 @@ type input struct {
 	mi        mouseInput
 }
 
+// keybdInput mirrors Win32 KEYBDINPUT (24 bytes on amd64).
+type keybdInput struct {
+	wVk         uint16
+	wScan       uint16
+	dwFlags     uint32
+	time        uint32
+	dwExtraInfo uintptr
+}
+
+// inputKB is the keyboard variant of INPUT, padded to the same 40-byte size as
+// the mouse INPUT so SendInput's cbSize is consistent.
+type inputKB struct {
+	inputType uint32
+	ki        keybdInput
+	_         [8]byte
+}
+
 func screenSize() (int, int) {
 	w, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
 	h, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
@@ -62,23 +85,46 @@ func setCursor(x, y int) {
 	procSetCursorPos.Call(uintptr(x), uintptr(y))
 }
 
-func mouseButton(flags uint32) {
+func sendMouse(flags uint32) {
 	in := input{inputType: inputMouse, mi: mouseInput{dwFlags: flags}}
 	procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
 }
 
-func pressLeft()   { mouseButton(mouseEventLeftDown) }
-func releaseLeft() { mouseButton(mouseEventLeftUp) }
+func pressLeft()   { sendMouse(mouseEventLeftDown) }
+func releaseLeft() { sendMouse(mouseEventLeftUp) }
+
+// typeText types a Unicode string via KEYEVENTF_UNICODE (layout-independent).
+func typeText(s string) {
+	for _, r := range s {
+		if r > 0xFFFF {
+			continue // non-BMP would need surrogate pairs; skip
+		}
+		in := inputKB{inputType: inputKeyboard, ki: keybdInput{wScan: uint16(r), dwFlags: keyEventUnicode}}
+		procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+		in.ki.dwFlags = keyEventUnicode | keyEventKeyUp
+		procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+	}
+}
+
+// pressVK presses and releases a virtual-key (e.g. Backspace, Enter, arrows).
+func pressVK(vk uint16) {
+	in := inputKB{inputType: inputKeyboard, ki: keybdInput{wVk: vk}}
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+	in.ki.dwFlags = keyEventKeyUp
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+}
 
 // --- packet stream ----------------------------------------------------------
 
-// packet is one sample streamed from the iPad. Coordinates and force are
-// normalized to 0..1 so the receiver is independent of the iPad's screen size.
+// packet is one sample streamed from the iPad. A pencil sample carries x/y/f/p;
+// a keyboard event carries either c (characters to type) or vk (a virtual key).
 type packet struct {
-	X     float64 `json:"x"` // 0 = left edge, 1 = right edge of capture area
-	Y     float64 `json:"y"` // 0 = top edge, 1 = bottom edge
-	F     float64 `json:"f"` // normalized force 0..1
-	Phase int     `json:"p"` // 0 began, 1 moved, 2 ended/cancelled
+	X     float64 `json:"x"`  // 0 = left edge, 1 = right edge of capture area
+	Y     float64 `json:"y"`  // 0 = top edge, 1 = bottom edge
+	F     float64 `json:"f"`  // normalized force 0..1
+	Phase int     `json:"p"`  // 0 began, 1 moved, 2 ended/cancelled
+	C     string  `json:"c"`  // characters to type (on-screen keyboard)
+	VK    int     `json:"vk"` // virtual-key code for special keys (Backspace, Enter, ...)
 }
 
 func main() {
@@ -121,6 +167,16 @@ func main() {
 		var p packet
 		if err := json.Unmarshal(buf[:n], &p); err != nil {
 			continue // ignore malformed packets rather than dropping the stream
+		}
+
+		// Keyboard events take priority and are mutually exclusive with pencil.
+		if p.C != "" {
+			typeText(p.C)
+			continue
+		}
+		if p.VK != 0 {
+			pressVK(uint16(p.VK))
+			continue
 		}
 
 		// Map normalized coords to screen pixels, clamped to the display.

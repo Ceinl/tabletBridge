@@ -30,6 +30,14 @@ Each pencil sample is one UDP datagram of compact JSON:
 
 Coordinates are normalized so the PC maps them to *its* screen size.
 
+The on-screen keyboard (toggled with the corner button in the iPad app) sends a
+different packet — either characters to type, or a Windows virtual-key code:
+
+```json
+{"c":"A"}      // type these characters (Unicode, layout-independent)
+{"vk":8}       // press a virtual key: Backspace=8, Enter=13
+```
+
 ## PC app (Go) — Windows
 
 Pure Go: it calls `user32.dll` (`SetCursorPos` / `SendInput`) directly for cursor
@@ -93,7 +101,10 @@ handling (for force + coalesced touches). Create an Xcode iOS app and add the fi
 2. In the iPad app enter that IP + port, tap **Connect** (status → *ready*).
 3. Write anywhere on screen with the Apple Pencil. The cursor follows; press
    harder than the threshold to hold the left button (draw/drag).
-4. Double-tap with a finger to hide/show the control panel.
+4. Tap the **corner button** (top-right) to switch to the on-screen **QWERTY
+   keyboard** and type on the PC. ⇧ shifts case, ⌫ backspace, ⏎ enter. Tap it
+   again to return to pencil mode.
+5. Double-tap with a finger to hide/show the control panel.
 
 ## Tuning
 

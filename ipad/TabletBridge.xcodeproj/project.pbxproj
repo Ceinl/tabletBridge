@@ -15,7 +15,7 @@
 
 /* Begin PBXFileReference section */
 		5F7DDB8699E4073B938CB131 /* UDPSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPSender.swift; sourceTree = "<group>"; };
-		7D4C06A34D9E87A026BD3F5E /* TabletBridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TabletBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7D4C06A34D9E87A026BD3F5E /* TabletBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TabletBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C38C6008AEB55D02FB38FA5F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D120A3E52BCFDA044A50434F /* TabletBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletBridgeApp.swift; sourceTree = "<group>"; };
 		D4D0131620241B7E169B782E /* PencilCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCaptureView.swift; sourceTree = "<group>"; };
@@ -181,6 +181,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DG84D54H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Sends Apple Pencil position and force to your PC.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -266,6 +267,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DG84D54H;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Sends Apple Pencil position and force to your PC.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

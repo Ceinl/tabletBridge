@@ -50,4 +50,16 @@ final class UDPSender: ObservableObject {
         )
         conn.send(content: json.data(using: .utf8), completion: .idempotent)
     }
+
+    /// Send characters for the PC to type (on-screen keyboard).
+    func sendChar(_ s: String) { sendJSON(["c": s]) }
+
+    /// Send a Windows virtual-key code for a special key (Backspace = 8, Enter = 13, ...).
+    func sendKey(_ vk: Int) { sendJSON(["vk": vk]) }
+
+    private func sendJSON(_ obj: [String: Any]) {
+        guard let conn = connection, state == .ready,
+              let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
+        conn.send(content: data, completion: .idempotent)
+    }
 }
