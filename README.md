@@ -30,17 +30,28 @@ Each pencil sample is one UDP datagram of compact JSON:
 
 Coordinates are normalized so the PC maps them to *its* screen size.
 
-## PC app (Go)
+## PC app (Go) — Windows
 
-Uses [robotgo](https://github.com/go-vgo/robotgo) for cursor + button control.
+Pure Go: it calls `user32.dll` (`SetCursorPos` / `SendInput`) directly for cursor
+and button control, so it needs **no cgo, no gcc, and no external dependencies**.
+The receiver is Windows-only.
 
-### Build & run
+### Run without cloning
 
-```bash
-cd pc
-go build -o tabletbridge .
-./tabletbridge            # listens on :9000
+```powershell
+go run github.com/Ceinl/tabletBridge/pc@latest
 ```
+
+### Or build a binary
+
+```powershell
+cd pc
+go build -o tabletbridge.exe .
+.\tabletbridge.exe        # listens on :9000
+```
+
+Windows Firewall will prompt on first run — allow it on **Private** networks so
+the iPad can reach it.
 
 Flags:
 
@@ -53,32 +64,9 @@ Flags:
 
 On start it prints the LAN IPs to point the iPad at.
 
-### Platform notes for robotgo
-
-robotgo uses cgo and native libraries:
-
-- **Windows (primary target)** — needs a gcc toolchain so cgo can compile.
-  Easiest: install [MSYS2](https://www.msys2.org/), then in an MSYS2 shell
-  `pacman -S mingw-w64-x86_64-gcc`, and make sure that gcc is on `PATH`
-  (e.g. `C:\msys64\mingw64\bin`) before running `go build`. No extra OS
-  permission is required to inject mouse input on Windows.
-- **macOS** — needs Xcode command-line tools (`xcode-select --install`), and
-  robotgo **v1.0.2+** (older versions fail to compile against the macOS 15+ SDK).
-  Grant the terminal/binary **Accessibility** permission (System Settings →
-  Privacy & Security → Accessibility) so it can move the mouse and click.
-- **Linux (X11)** — install dev headers: `libx11-dev libxtst-dev libxkbcommon-dev`
-  (names vary by distro). Wayland is not supported by robotgo for input injection.
-
-### Windows quick build
-
-```powershell
-cd pc
-go build -o tabletbridge.exe .
-.\tabletbridge.exe
-```
-
-Windows Firewall will prompt to allow the app to receive network traffic on
-first run — allow it on **Private** networks so the iPad can reach it.
+> Only the mouse-injection layer (`user32.dll`) is Windows-specific. Porting the
+> receiver to macOS/Linux means swapping those three calls (`SetCursorPos`,
+> `SendInput`, `GetSystemMetrics`) for the platform equivalent.
 
 ## iPad app (Swift / SwiftUI)
 

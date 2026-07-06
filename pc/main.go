@@ -1,6 +1,10 @@
+//go:build windows
+
 // Command tabletbridge receives Apple Pencil packets from the iPad app over UDP
-// and drives the local mouse: the cursor follows the pencil, and the left mouse
-// button is held down while pencil force exceeds a threshold.
+// and drives the Windows mouse: the cursor follows the pencil, and the left
+// mouse button is held down while pencil force exceeds a threshold.
+//
+// Pure Go — it calls user32.dll directly, so it needs no cgo/gcc toolchain.
 package main
 
 import (
@@ -9,10 +13,64 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
-
-	"github.com/go-vgo/robotgo"
+	"syscall"
+	"unsafe"
 )
+
+// --- Win32 bindings (user32.dll) -------------------------------------------
+
+var (
+	user32               = syscall.NewLazyDLL("user32.dll")
+	procSetCursorPos     = user32.NewProc("SetCursorPos")
+	procSendInput        = user32.NewProc("SendInput")
+	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+)
+
+const (
+	smCXScreen = 0
+	smCYScreen = 1
+
+	inputMouse         = 0
+	mouseEventLeftDown = 0x0002
+	mouseEventLeftUp   = 0x0004
+)
+
+// mouseInput mirrors Win32 MOUSEINPUT (32 bytes on amd64).
+type mouseInput struct {
+	dx          int32
+	dy          int32
+	mouseData   uint32
+	dwFlags     uint32
+	time        uint32
+	dwExtraInfo uintptr
+}
+
+// input mirrors Win32 INPUT for the mouse case (40 bytes on amd64: the 4-byte
+// gap after inputType is the union alignment padding).
+type input struct {
+	inputType uint32
+	mi        mouseInput
+}
+
+func screenSize() (int, int) {
+	w, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
+	h, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
+	return int(w), int(h)
+}
+
+func setCursor(x, y int) {
+	procSetCursorPos.Call(uintptr(x), uintptr(y))
+}
+
+func mouseButton(flags uint32) {
+	in := input{inputType: inputMouse, mi: mouseInput{dwFlags: flags}}
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+}
+
+func pressLeft()   { mouseButton(mouseEventLeftDown) }
+func releaseLeft() { mouseButton(mouseEventLeftUp) }
+
+// --- packet stream ----------------------------------------------------------
 
 // packet is one sample streamed from the iPad. Coordinates and force are
 // normalized to 0..1 so the receiver is independent of the iPad's screen size.
@@ -41,7 +99,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	sw, sh := robotgo.GetScreenSize()
+	sw, sh := screenSize()
 	printBanner(*port, sw, sh, *threshold)
 
 	var (
@@ -81,16 +139,16 @@ func main() {
 			px, py = emaX, emaY
 		}
 
-		robotgo.Move(int(px+0.5), int(py+0.5))
+		setCursor(int(px+0.5), int(py+0.5))
 
 		// Button logic with hysteresis. On a lift (phase 2) always release.
 		lifted := p.Phase == 2
 		switch {
 		case !pressed && !lifted && p.F >= *threshold:
-			robotgo.Toggle("left", "down")
+			pressLeft()
 			pressed = true
 		case pressed && (lifted || p.F <= *release):
-			robotgo.Toggle("left", "up")
+			releaseLeft()
 			pressed = false
 			haveEMA = false // reset smoothing between strokes
 		}
@@ -119,9 +177,6 @@ func printBanner(port, sw, sh int, threshold float64) {
 		}
 	}
 	fmt.Println("  (Ctrl+C to quit)")
-	if os.Getenv("ROBOTGO_DISABLE") != "" {
-		log.Fatal("ROBOTGO_DISABLE set; refusing to control mouse")
-	}
 }
 
 func localIPs() []string {
