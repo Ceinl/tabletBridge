@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @StateObject private var sender = UDPSender()
@@ -54,8 +55,10 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        // Two-finger tap toggles the control panel so it stays out of the way.
-        .onTapGesture(count: 2) { showControls.toggle() }
+        // Two-finger tap toggles the control panel. Attached to the window so it
+        // never delays single-finger key/pencil taps (a single-finger double-tap
+        // recognizer would make every tap wait ~0.35s for it to fail).
+        .background(TwoFingerTapView { showControls.toggle() })
     }
 
     private var modeToggle: some View {
@@ -91,7 +94,7 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 statusLabel
             }
-            Text("Pencil draws/moves the cursor. Tap the corner button for a keyboard. Double-tap with a finger to hide this panel.")
+            Text("Pencil draws/moves the cursor. Tap the corner button for a keyboard. Tap with two fingers to hide this panel.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -178,10 +181,7 @@ struct KeyboardView: View {
             .frame(maxHeight: .infinity)
             keyRow(rows[4])
             HStack(spacing: 8) {
-                Button { onChar(" ") } label: {
-                    Text("space").frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .buttonStyle(KeyCap())
+                KeyButton { onChar(" ") } label: { Text("space") }
                 specialKey(system: "return") { onKey(vkEnter) }
                     .frame(maxWidth: 140)
             }
@@ -200,29 +200,101 @@ struct KeyboardView: View {
 
     private func charKey(_ base: String) -> some View {
         let display = shifted ? base.uppercased() : base
-        return Button(display) { onChar(display) }
-            .buttonStyle(KeyCap())
+        return KeyButton { onChar(display) } label: { Text(display) }
     }
 
     private func specialKey(system: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: system).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(KeyCap())
+        KeyButton(action: action) { Image(systemName: system) }
     }
 }
 
-/// Flat, dark key styling with a press highlight.
-struct KeyCap: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+/// A key that fires on touch-*down* (not release) for the lowest possible
+/// latency, with a flat dark style and press highlight.
+struct KeyButton<Label: View>: View {
+    let action: () -> Void
+    @ViewBuilder let label: () -> Label
+
+    @State private var pressed = false
+
+    var body: some View {
+        label()
             .font(.title2.weight(.medium))
             .foregroundStyle(.white)
             .frame(minWidth: 40, minHeight: 52)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
-                (configuration.isPressed ? Color.white.opacity(0.45) : Color.white.opacity(0.18)),
+                (pressed ? Color.white.opacity(0.45) : Color.white.opacity(0.18)),
                 in: RoundedRectangle(cornerRadius: 8)
             )
+            .contentShape(Rectangle())
+            // minimumDistance 0 => the gesture begins the instant the finger
+            // lands, so the key fires immediately rather than on lift.
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !pressed {
+                            pressed = true
+                            action()
+                        }
+                    }
+                    .onEnded { _ in pressed = false }
+            )
+    }
+}
+
+/// Recognizes a two-finger tap anywhere by attaching a recognizer to the window,
+/// so it never intercepts or delays single-finger touches on keys/pencil.
+struct TwoFingerTapView: UIViewRepresentable {
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    func makeUIView(context: Context) -> UIView {
+        let v = PassthroughView()
+        DispatchQueue.main.async { context.coordinator.attach(to: v) }
+        return v
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.action = action
+        context.coordinator.attach(to: uiView)
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var action: () -> Void
+        private var installed = false
+
+        init(action: @escaping () -> Void) { self.action = action }
+
+        func attach(to view: UIView) {
+            guard !installed else { return }
+            guard let window = view.window else {
+                // View not in a window yet; retry on the next runloop tick.
+                DispatchQueue.main.async { [weak view] in
+                    if let view = view { self.attach(to: view) }
+                }
+                return
+            }
+            let g = UITapGestureRecognizer(target: self, action: #selector(fire))
+            g.numberOfTouchesRequired = 2
+            g.cancelsTouchesInView = false
+            g.delaysTouchesBegan = false
+            g.delaysTouchesEnded = false
+            g.delegate = self
+            window.addGestureRecognizer(g)
+            installed = true
+        }
+
+        @objc func fire() { action() }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool { true }
+    }
+
+    /// Transparent to touches so the representable itself blocks nothing.
+    final class PassthroughView: UIView {
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
     }
 }
