@@ -114,17 +114,40 @@ func pressVK(vk uint16) {
 	procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
 }
 
+// keyEvent sends a single key down or up.
+func keyEvent(vk uint16, up bool) {
+	in := inputKB{inputType: inputKeyboard, ki: keybdInput{wVk: vk}}
+	if up {
+		in.ki.dwFlags = keyEventKeyUp
+	}
+	procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))
+}
+
+// hotkey presses a chord: modifiers down, key down/up, modifiers up (reversed).
+func hotkey(mods []uint16, key uint16) {
+	for _, m := range mods {
+		keyEvent(m, false)
+	}
+	keyEvent(key, false)
+	keyEvent(key, true)
+	for i := len(mods) - 1; i >= 0; i-- {
+		keyEvent(mods[i], true)
+	}
+}
+
 // --- packet stream ----------------------------------------------------------
 
 // packet is one sample streamed from the iPad. A pencil sample carries x/y/f/p;
 // a keyboard event carries either c (characters to type) or vk (a virtual key).
 type packet struct {
-	X     float64 `json:"x"`  // 0 = left edge, 1 = right edge of capture area
-	Y     float64 `json:"y"`  // 0 = top edge, 1 = bottom edge
-	F     float64 `json:"f"`  // normalized force 0..1
-	Phase int     `json:"p"`  // 0 began, 1 moved, 2 ended/cancelled
-	C     string  `json:"c"`  // characters to type (on-screen keyboard)
-	VK    int     `json:"vk"` // virtual-key code for special keys (Backspace, Enter, ...)
+	X     float64 `json:"x"`   // 0 = left edge, 1 = right edge of capture area
+	Y     float64 `json:"y"`   // 0 = top edge, 1 = bottom edge
+	F     float64 `json:"f"`   // normalized force 0..1
+	Phase int     `json:"p"`   // 0 began, 1 moved, 2 ended/cancelled
+	C     string  `json:"c"`   // characters to type (on-screen keyboard)
+	VK    int     `json:"vk"`  // virtual-key code for special keys (Backspace, Enter, ...)
+	Btn   string  `json:"btn"` // Stream Deck button id (looked up in the deck config)
+	Get   string  `json:"get"` // request: "deck" asks the PC to reply with the layout
 }
 
 func main() {
@@ -132,6 +155,9 @@ func main() {
 	threshold := flag.Float64("threshold", 0.15, "force (0..1) at/above which the left button is held")
 	release := flag.Float64("release", 0.10, "force (0..1) at/below which the left button is released (hysteresis)")
 	smooth := flag.Float64("smooth", 0.0, "cursor smoothing 0..0.95 (higher = smoother but laggier)")
+	config := flag.String("config", "deck.json", "path to the Stream Deck button config")
+	webport := flag.Int("webport", 0, "port for the web editor (default: -port + 1)")
+	noopen := flag.Bool("noopen", false, "do not auto-open the web editor in a browser")
 	flag.Parse()
 
 	if *release > *threshold {
@@ -145,8 +171,18 @@ func main() {
 	}
 	defer conn.Close()
 
+	webPort := *webport
+	if webPort == 0 {
+		webPort = *port + 1
+	}
+	loadDeck(*config)
+	startWeb(webPort)
+	if !*noopen {
+		openBrowser(fmt.Sprintf("http://localhost:%d/", webPort))
+	}
+
 	sw, sh := screenSize()
-	printBanner(*port, sw, sh, *threshold)
+	printBanner(*port, webPort, sw, sh, *threshold)
 
 	var (
 		buf        = make([]byte, 2048)
@@ -158,7 +194,7 @@ func main() {
 	)
 
 	for {
-		n, _, err := conn.ReadFromUDP(buf)
+		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			log.Printf("read: %v", err)
 			continue
@@ -169,6 +205,12 @@ func main() {
 			continue // ignore malformed packets rather than dropping the stream
 		}
 
+		// The iPad fetches the deck layout over this same UDP socket.
+		if p.Get == "deck" {
+			conn.WriteToUDP(layoutJSON(), src)
+			continue
+		}
+
 		// Keyboard events take priority and are mutually exclusive with pencil.
 		if p.C != "" {
 			typeText(p.C)
@@ -176,6 +218,10 @@ func main() {
 		}
 		if p.VK != 0 {
 			pressVK(uint16(p.VK))
+			continue
+		}
+		if p.Btn != "" {
+			executeButton(p.Btn)
 			continue
 		}
 
@@ -220,10 +266,11 @@ func main() {
 	}
 }
 
-func printBanner(port, sw, sh int, threshold float64) {
+func printBanner(port, webPort, sw, sh int, threshold float64) {
 	ips := localIPs()
 	fmt.Println("tabletBridge — PC receiver")
 	fmt.Printf("  listening : UDP :%d\n", port)
+	fmt.Printf("  editor    : http://localhost:%d/  (edit deck buttons here)\n", webPort)
 	fmt.Printf("  screen    : %dx%d px\n", sw, sh)
 	fmt.Printf("  threshold : force >= %.2f holds left button\n", threshold)
 	if len(ips) > 0 {

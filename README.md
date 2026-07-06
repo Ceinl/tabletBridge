@@ -36,6 +36,8 @@ different packet — either characters to type, or a Windows virtual-key code:
 ```json
 {"c":"A"}      // type these characters (Unicode, layout-independent)
 {"vk":8}       // press a virtual key: Backspace=8, Enter=13
+{"btn":"copy"} // fire a deck button by id (PC runs its configured action)
+{"get":"deck"} // ask the PC to reply (same UDP socket) with the deck layout
 ```
 
 ## PC app (Go) — Windows
@@ -101,10 +103,37 @@ handling (for force + coalesced touches). Create an Xcode iOS app and add the fi
 2. In the iPad app enter that IP + port, tap **Connect** (status → *ready*).
 3. Write anywhere on screen with the Apple Pencil. The cursor follows; press
    harder than the threshold to hold the left button (draw/drag).
-4. Tap the **corner button** (top-right) to switch to the on-screen **QWERTY
-   keyboard** and type on the PC. ⇧ shifts case, ⌫ backspace, ⏎ enter. Tap it
-   again to return to pencil mode.
-5. Double-tap with a finger to hide/show the control panel.
+4. Tap the **corner button** (top-right) to cycle modes: **pencil → keyboard →
+   deck**. Keyboard types on the PC (⇧ case, ⌫ backspace, ⏎ enter); deck shows
+   your configurable button grid (see Stream Deck mode below).
+5. **Two-finger tap** anywhere to hide/show the control panel.
+
+## Stream Deck mode
+
+The iPad's corner button cycles **pencil → keyboard → deck**. The deck is a grid
+of configurable buttons; the **PC is the source of truth** for what they do.
+
+- On start, the PC app opens a **web editor** at `http://localhost:<port+1>/`
+  (e.g. `http://localhost:9001/`). Add/label buttons, pick an action, and Save —
+  it writes `deck.json` next to the app.
+- The iPad fetches the layout over the same UDP socket (no extra ports/HTTP) and
+  renders the grid. Tapping a button sends its id; the PC runs the action. Use
+  the ↻ button on the iPad to re-fetch after editing.
+
+Button action types:
+
+| type     | fields                     | example                                    |
+|----------|----------------------------|--------------------------------------------|
+| `hotkey` | `mods[]` + `key` (or `vk`) | Ctrl+Shift+M, Alt+F4, F5                    |
+| `media`  | `vk`                       | Play/Pause, Next, Mute, Volume ±           |
+| `exec`   | `exec` + `args[]`          | launch `obs64.exe`, `notepad`, a script    |
+
+`mods`: `ctrl`, `shift`, `alt`, `win`. `key`: a single character or a name
+(`enter`, `tab`, `esc`, `f1`–`f12`, arrows, …). `exec` runs through the shell so
+PATH lookups and `.lnk` shortcuts work.
+
+You can also edit `deck.json` by hand; the file is (re)written with a starter set
+of buttons on first run. Flags: `-config <path>`, `-webport <n>`, `-noopen`.
 
 ## Tuning
 

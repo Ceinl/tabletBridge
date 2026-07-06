@@ -8,14 +8,23 @@ struct ContentView: View {
 
     @State private var lastForce: Double = 0
     @State private var showControls = true
-    @State private var keyboardMode = false
+    @State private var mode: InputMode = .pencil
+
+    enum InputMode { case pencil, keyboard, deck }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
 
-            // Main surface: pencil capture, or the on-screen keyboard.
-            if keyboardMode {
+            // Main surface: pencil capture, on-screen keyboard, or deck grid.
+            switch mode {
+            case .pencil:
+                PencilCaptureView { x, y, force, phase in
+                    lastForce = force
+                    sender.send(x: x, y: y, force: force, phase: phase)
+                }
+                .ignoresSafeArea()
+            case .keyboard:
                 GeometryReader { geo in
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
@@ -26,12 +35,8 @@ struct ContentView: View {
                         .frame(height: geo.size.height * 0.75)
                     }
                 }
-            } else {
-                PencilCaptureView { x, y, force, phase in
-                    lastForce = force
-                    sender.send(x: x, y: y, force: force, phase: phase)
-                }
-                .ignoresSafeArea()
+            case .deck:
+                deckSurface
             }
 
             // Corner button: toggle pencil <-> keyboard mode.
@@ -47,7 +52,7 @@ struct ContentView: View {
             }
 
             // Live force meter (pencil mode only).
-            if !keyboardMode {
+            if mode == .pencil {
                 VStack {
                     Spacer()
                     forceMeter.padding()
@@ -59,18 +64,66 @@ struct ContentView: View {
         // never delays single-finger key/pencil taps (a single-finger double-tap
         // recognizer would make every tap wait ~0.35s for it to fail).
         .background(TwoFingerTapView { showControls.toggle() })
+        .onChange(of: mode) { newMode in
+            if newMode == .deck { sender.requestDeck() }
+        }
+    }
+
+    // Deck grid, or a loading/retry state while the layout is fetched from the PC.
+    private var deckSurface: some View {
+        Group {
+            if let layout = sender.deckLayout {
+                DeckView(layout: layout) { sender.sendButton($0) }
+            } else {
+                VStack(spacing: 14) {
+                    Text(sender.deckError ?? "Loading deck from PC…")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Retry") { sender.requestDeck() }
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
     }
 
     private var modeToggle: some View {
-        Button {
-            keyboardMode.toggle()
-        } label: {
-            Image(systemName: keyboardMode ? "pencil.tip.crop.circle" : "keyboard")
-                .font(.title2)
-                .padding(14)
-                .background(.ultraThinMaterial, in: Circle())
+        HStack(spacing: 10) {
+            if mode == .deck {
+                Button { sender.requestDeck() } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.title2).padding(14)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .accessibilityLabel("Refresh deck")
+            }
+            Button {
+                mode = nextMode(mode)
+            } label: {
+                Image(systemName: modeIcon(mode))
+                    .font(.title2)
+                    .padding(14)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .accessibilityLabel("Switch input mode")
         }
-        .accessibilityLabel(keyboardMode ? "Switch to pencil" : "Switch to keyboard")
+    }
+
+    private func nextMode(_ m: InputMode) -> InputMode {
+        switch m {
+        case .pencil: return .keyboard
+        case .keyboard: return .deck
+        case .deck: return .pencil
+        }
+    }
+
+    private func modeIcon(_ m: InputMode) -> String {
+        switch m {
+        case .pencil: return "pencil.tip.crop.circle"
+        case .keyboard: return "keyboard"
+        case .deck: return "square.grid.3x3.fill"
+        }
     }
 
     private var controlPanel: some View {
@@ -239,6 +292,44 @@ struct KeyButton<Label: View>: View {
                     }
                     .onEnded { _ in pressed = false }
             )
+    }
+}
+
+// MARK: - Stream Deck mode
+
+struct DeckButtonModel: Decodable, Identifiable {
+    let id: String
+    let label: String
+}
+
+struct DeckLayout: Decodable {
+    let cols: Int
+    let buttons: [DeckButtonModel]
+}
+
+/// A grid of deck buttons; tapping one sends its id to the PC.
+struct DeckView: View {
+    let layout: DeckLayout
+    let onTap: (String) -> Void
+
+    var body: some View {
+        let cols = max(1, layout.cols)
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: cols)
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(layout.buttons) { b in
+                    KeyButton { onTap(b.id) } label: {
+                        Text(b.label)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.6)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .frame(height: 88)
+                }
+            }
+            .padding()
+        }
     }
 }
 

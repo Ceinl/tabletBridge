@@ -57,6 +57,34 @@ final class UDPSender: ObservableObject {
     /// Send a Windows virtual-key code for a special key (Backspace = 8, Enter = 13, ...).
     func sendKey(_ vk: Int) { sendJSON(["vk": vk]) }
 
+    /// Fire a Stream Deck button by its id; the PC looks up the action.
+    func sendButton(_ id: String) { sendJSON(["btn": id]) }
+
+    // MARK: Deck layout (fetched over the same UDP socket — no HTTP/ATS needed)
+
+    @Published private(set) var deckLayout: DeckLayout?
+    @Published private(set) var deckError: String?
+
+    /// Ask the PC for the current deck layout and wait for its UDP reply.
+    func requestDeck() {
+        guard let conn = connection, state == .ready else {
+            deckError = "Not connected"
+            return
+        }
+        deckError = nil
+        sendJSON(["get": "deck"])
+        conn.receiveMessage { [weak self] data, _, _, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let data = data, let layout = try? JSONDecoder().decode(DeckLayout.self, from: data) {
+                    self.deckLayout = layout
+                } else {
+                    self.deckError = error?.localizedDescription ?? "No deck received from PC"
+                }
+            }
+        }
+    }
+
     private func sendJSON(_ obj: [String: Any]) {
         guard let conn = connection, state == .ready,
               let data = try? JSONSerialization.data(withJSONObject: obj) else { return }

@@ -1,0 +1,169 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tabletBridge — deck editor</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#0e0f13; color:#e7e9ee; }
+  header { padding:16px 20px; border-bottom:1px solid #23252d; display:flex; align-items:baseline; gap:10px; }
+  header h1 { font-size:16px; margin:0; font-weight:650; }
+  header .sub { color:#8b8f9a; font-size:13px; }
+  main { max-width:920px; margin:0 auto; padding:20px; }
+  .bar { display:flex; align-items:flex-end; gap:14px; margin-bottom:16px; flex-wrap:wrap; }
+  .spacer { flex:1; }
+  .card { background:#171922; border:1px solid #262935; border-radius:12px; padding:14px; margin-bottom:10px; }
+  .top { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  label.f { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#9aa0ad; }
+  input, select { background:#0e0f13; border:1px solid #2c303c; color:#e7e9ee; border-radius:8px; padding:8px 10px; font-size:14px; }
+  input:focus, select:focus { outline:none; border-color:#5b8cff; }
+  button { background:#2a2e3a; color:#e7e9ee; border:1px solid #3a3f4d; border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  button:hover { background:#333846; }
+  button.primary { background:#3b6cff; border-color:#3b6cff; color:#fff; }
+  button.ghost { background:transparent; }
+  button.danger { color:#ff8f8f; border-color:#4a2e34; }
+  .mods { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding-top:4px; }
+  .mods label { display:flex; gap:6px; align-items:center; font-size:13px; color:#c7ccd6; }
+  .fields { display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-top:12px; }
+  .grid { display:grid; gap:10px; margin-top:10px; }
+  .key { background:#171922; border:1px solid #2c303c; border-radius:12px; min-height:78px; display:flex; align-items:center; justify-content:center; text-align:center; padding:8px; font-weight:600; cursor:pointer; user-select:none; }
+  .key:active { background:#22262f; }
+  .key:hover { border-color:#3b6cff; }
+  .status { color:#7dd58f; font-size:13px; align-self:center; }
+  h3 { margin:26px 0 4px; font-size:13px; color:#9aa0ad; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+</style>
+<header>
+  <h1>tabletBridge</h1><span class="sub">deck editor — edits are saved to deck.json</span>
+</header>
+<main>
+  <div class="bar">
+    <label class="f">Columns
+      <input id="cols" type="number" min="1" max="8" style="width:80px">
+    </label>
+    <div class="spacer"></div>
+    <button id="add">+ Add button</button>
+    <button id="save" class="primary">Save</button>
+    <span id="status" class="status"></span>
+  </div>
+  <div id="list"></div>
+  <h3>Preview — tap a tile to test it on this PC</h3>
+  <div id="preview" class="grid"></div>
+</main>
+<script>
+"use strict";
+const MEDIA = [
+  {name:"Play / Pause", vk:179}, {name:"Stop", vk:178},
+  {name:"Previous", vk:177}, {name:"Next", vk:176},
+  {name:"Mute", vk:173}, {name:"Volume -", vk:174}, {name:"Volume +", vk:175},
+];
+const $ = id => document.getElementById(id);
+const colsEl = $("cols"), listEl = $("list"), previewEl = $("preview"), statusEl = $("status");
+
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  props = props || {};
+  for (const k in props) {
+    if (k === "class") e.className = props[k];
+    else if (k.slice(0,2) === "on") e.addEventListener(k.slice(2), props[k]);
+    else e.setAttribute(k, props[k]);
+  }
+  for (const c of kids) if (c != null) e.append(c);
+  return e;
+}
+
+let deck = { cols: 4, buttons: [] };
+
+async function loadDeck() {
+  try { const r = await fetch("/api/deck"); deck = await r.json(); } catch (e) {}
+  if (!deck.buttons) deck.buttons = [];
+  if (!deck.cols) deck.cols = 4;
+  colsEl.value = deck.cols;
+  renderList(); renderPreview();
+}
+
+colsEl.addEventListener("input", () => { deck.cols = +colsEl.value || 4; renderPreview(); });
+
+function renderList() {
+  listEl.innerHTML = "";
+  deck.buttons.forEach((b, i) => listEl.append(rowCard(b, i)));
+}
+
+function rowCard(b, i) {
+  b.action = b.action || { type: "media", vk: 179 };
+  const typeSel = el("select", { onchange: e => { b.action = { type: e.target.value }; renderList(); renderPreview(); } });
+  ["hotkey", "media", "exec"].forEach(t => {
+    const o = el("option", { value: t }, t);
+    if (b.action.type === t) o.selected = true;
+    typeSel.append(o);
+  });
+  const fields = el("div", { class: "fields" });
+  buildFields(fields, b);
+  const top = el("div", { class: "top" },
+    el("label", { class: "f" }, "Label", el("input", { value: b.label || "", oninput: e => { b.label = e.target.value; renderPreview(); } })),
+    el("label", { class: "f" }, "ID", el("input", { value: b.id || "", placeholder: "auto", style: "width:120px", oninput: e => { b.id = e.target.value; } })),
+    el("label", { class: "f" }, "Action", typeSel),
+    el("div", { class: "spacer" }),
+    el("button", { class: "ghost", onclick: () => testButton(b) }, "Test"),
+    el("button", { class: "ghost danger", onclick: () => { deck.buttons.splice(i, 1); renderList(); renderPreview(); } }, "Remove"),
+  );
+  return el("div", { class: "card" }, top, fields);
+}
+
+function buildFields(container, b) {
+  container.innerHTML = "";
+  const a = b.action;
+  if (a.type === "hotkey") {
+    a.mods = a.mods || [];
+    const mods = el("div", { class: "mods" });
+    [["ctrl","Ctrl"],["shift","Shift"],["alt","Alt"],["win","Win"]].forEach(([v,lbl]) => {
+      const cb = el("input", { type: "checkbox", onchange: e => {
+        a.mods = a.mods.filter(m => m !== v);
+        if (e.target.checked) a.mods.push(v);
+      }});
+      if (a.mods.includes(v)) cb.checked = true;
+      mods.append(el("label", {}, cb, lbl));
+    });
+    container.append(el("label", { class: "f" }, "Modifiers", mods));
+    container.append(el("label", { class: "f" }, "Key",
+      el("input", { value: a.key || "", placeholder: "e.g. c, f5, enter", style: "width:160px", oninput: e => { a.key = e.target.value; } })));
+  } else if (a.type === "media") {
+    if (!a.vk) a.vk = MEDIA[0].vk;
+    const sel = el("select", { onchange: e => { a.vk = +e.target.value; } });
+    MEDIA.forEach(m => { const o = el("option", { value: m.vk }, m.name); if (a.vk === m.vk) o.selected = true; sel.append(o); });
+    container.append(el("label", { class: "f" }, "Media / volume key", sel));
+  } else if (a.type === "exec") {
+    container.append(el("label", { class: "f" }, "Program / command",
+      el("input", { value: a.exec || "", placeholder: "notepad  ·  obs64.exe  ·  C:\\path\\app.exe", style: "width:340px", oninput: e => { a.exec = e.target.value; } })));
+    container.append(el("label", { class: "f" }, "Arguments (comma-separated)",
+      el("input", { value: (a.args || []).join(", "), style: "width:220px", oninput: e => { a.args = e.target.value.split(",").map(s => s.trim()).filter(Boolean); } })));
+  }
+}
+
+function renderPreview() {
+  previewEl.style.gridTemplateColumns = "repeat(" + (deck.cols || 4) + ",1fr)";
+  previewEl.innerHTML = "";
+  deck.buttons.forEach(b => previewEl.append(el("div", { class: "key", onclick: () => testButton(b) }, b.label || b.id || "?")));
+}
+
+function slug(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+function ensureId(b) { if (!b.id) b.id = slug(b.label) || ("btn" + Math.random().toString(36).slice(2, 7)); }
+
+async function saveDeck(quiet) {
+  const seen = {};
+  deck.buttons.forEach(b => { ensureId(b); while (seen[b.id]) b.id += "_"; seen[b.id] = 1; });
+  deck.cols = +colsEl.value || 4;
+  const r = await fetch("/api/deck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(deck) });
+  if (!quiet) { statusEl.textContent = r.ok ? "Saved ✓" : "Save failed"; setTimeout(() => statusEl.textContent = "", 1600); }
+  return r.ok;
+}
+
+async function testButton(b) {
+  ensureId(b);
+  await saveDeck(true);
+  fetch("/api/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.id }) });
+}
+
+$("add").onclick = () => { deck.buttons.push({ id: "", label: "New", action: { type: "media", vk: 179 } }); renderList(); renderPreview(); };
+$("save").onclick = () => saveDeck(false);
+loadDeck();
+</script>
