@@ -1,4 +1,4 @@
-module tabletbridge
+module github.com/Ceinl/tabletBridge/pc
 
 go 1.25.0
 
